@@ -769,11 +769,28 @@ func (m *MachineScope) SetAddresses(ctx context.Context, instance *models.PVMIns
 			})
 		}
 	}
-	m.IBMPowerVSMachine.Status.Addresses = addresses
+
+	//  Workaround for the ip mismatch issue
+	//  Validate PowerVS API IP against DHCP lease
 	if len(addresses) > 2 {
-		// If the address length is more than 2 means either MachineInternalIP or MachineExternalIP is updated so return
+		obj, exists, err := m.DHCPIPCacheStore.GetByKey(*instance.ServerName)
+		if err == nil && exists {
+			dhcpIP := obj.(powervs.VMip).IP
+			// Check if internal IP from API matches DHCP, if not use DHCP IP
+			for i := 2; i < len(addresses); i++ {
+				if addresses[i].Type == clusterv1.MachineInternalIP {
+					if addresses[i].Address != dhcpIP {
+						addresses[i].Address = dhcpIP
+					}
+					break
+				}
+			}
+		}
+		m.IBMPowerVSMachine.Status.Addresses = addresses
 		return
 	}
+
+	m.IBMPowerVSMachine.Status.Addresses = addresses
 	// In this case there is no IP found under instance.Networks, So try to fetch the IP from cache or DHCP server
 
 	// Look for DHCP IP from the cache
